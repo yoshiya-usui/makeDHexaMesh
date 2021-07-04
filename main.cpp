@@ -39,6 +39,8 @@ int main(){
 	meshGen->includeTopography(elemsSeaToLand);
 	meshGen->removeInactiveElements();
 
+	meshGen->checkWhetherEachParameterCellContainsAtLeastOneActiveElement();
+
 	meshGen->outputMeshData(); // Output mesh data
 	meshGen->outputResistivityData();
 	meshGen->outputVTK("MeshData.vtk"); // Output VTK file

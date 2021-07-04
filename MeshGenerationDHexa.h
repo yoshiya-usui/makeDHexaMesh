@@ -94,7 +94,7 @@ class MeshGenerationDHexa{
 		void calcResisivityDistributionForInitialMesh();
 
 		// Reconstruct resistivity distribution to assign different parameter cell to each subsurface element
-		void reconstructResisivityDistribution( std::set<int>& elemsSeaToLand );
+		void reconstructResisivityDistribution( const std::set<int>& elemsSeaToLand, const std::map<int, double>& elemsLandToSea );
 
 		// Reconstruct the array of elements just below the Earth surface
 		void reconstructElementOfEarthSurface();
@@ -135,6 +135,9 @@ class MeshGenerationDHexa{
 
 		// Type of partitioning
 		int getPartitioningType() const;
+
+		// Check whether each parameter cell contains at least one active element
+		void checkWhetherEachParameterCellContainsAtLeastOneActiveElement() const;
 
 	private:
 		// Ellipsoids used for specifing edge lentgh
@@ -306,6 +309,9 @@ class MeshGenerationDHexa{
 		// Instance of the class TopographyData
 		TopographyData* m_topographyData;
 
+		// Get whether all children are converted to the sea
+		bool allChildrenAreConvertedToSea( const int elemIndex, const std::map<int, double>& elemsLandToSea ) const;
+
 		// Get flag specifing whether inputted element is active 
 		bool isActive( const int elemID ) const;
 
@@ -364,6 +370,9 @@ class MeshGenerationDHexa{
 		// Get number of element connected to the node
 		int getNumOflElementsConnected( const int nodeID, const int level, const std::multimap<int, int>& nodeToElem ) const;
 
+		// Get resistivity from element
+		double getResistivityFromElement( const ElementInfo& info ) const;
+
 		// Auxiliary function for including topography
 		void includeTopographyAux( const int iLevel, const int maxLevel, const std::vector<CommonParameters::XYZ>& nodeCoordOrg, const std::multimap<int,int>& nodeToElems );
 
@@ -377,6 +386,12 @@ class MeshGenerationDHexa{
 		// Select elements to be changed to land from the sea
 		void selectElementsToBeChangedToLandFromSea( std::set<int>& elemsSeaToLand );
 
+		// Select elements to be changed to seat from land
+		void selectElementsToBeChangedToSeaFromLand( std::map<int, double>& elemsLandToSea, std::map<int, double>& elemEarthSurfToSeaDepth ) const;
+
+		// Auxiliary function for selecting elements to be changed to seat from land
+		void selectElementsToBeChangedToSeaFromLandAux( const int elemIndex, const double resistivity, std::map<int, double>& elemsLandToSea ) const;
+
 		// Calculated average Z coordinate in an element
 		double calcAverageZCoord( const int elemIndex ) const;
 
@@ -384,7 +399,7 @@ class MeshGenerationDHexa{
 		bool changeSeaToLand( const int elemIndex, const std::set<int>& elemsSeaToLand, const int paramCellIDNew );
 
 		// Output Earth surface depth by vtk
-		void outputEarthSurfaceDepthByVtk() const;
+		void outputEarthSurfaceDepthByVtk( const std::map<int, double>& elemEarthSurfToSeaDepth ) const;
 
 		// Calculate center coordinate
 		CommonParameters::XY calcCenterCoordinate( const int elemIndex ) const;
@@ -393,7 +408,7 @@ class MeshGenerationDHexa{
 		CommonParameters::XYZ calculateCenterCoordOfElemFace( const std::vector<ElementInfo>::const_iterator& itrElem, const int iFace ) const;
 
 		// Give same parameter cell ID to children
-		void giveSameParamCellIDToChildren( const int elemIndex, const int paramCellID );
+		void giveSameParamCellIDToChildren( const int elemIndex, const int paramCellID, const std::map<int, double>& elemsLandToSea  );
 
 		// Give same type to children
 		void giveSameTypeToChildren( const int elemIndex, const int type );
@@ -409,6 +424,9 @@ class MeshGenerationDHexa{
 
 		// Check whether four edges are vertical
 		void checkWhetherFourEdgesAreVertical( const ElementInfo& info ) const;
+
+		// Check whether element has flat top and bottom surfaces
+		bool checkWhetherElementHasFlatTopAndBottomSurfaces( const ElementInfo& info ) const;
 
 #ifdef _LAYERS
 		// Read data of layers

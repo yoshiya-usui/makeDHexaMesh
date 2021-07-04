@@ -30,28 +30,6 @@ struct XYZ{
 	double Z;
 };
 
-//enum DomainType{
-//	UNKNOWN = -1,
-//	SEA = 0,
-//	LAND,
-//	LAKE,
-//	AIR,
-//	NMT_DIPOLE,
-//	OUTSIDE_OF_DOMAIN
-//};
-//
-//enum Boundary{
-//	UNDEFINED_BOUNDARY = -1,
-//	SURFACE = 0,
-//	TOP,
-//	BOT,
-//	YZ_MINUS,
-//	YZ_PLUS,
-//	ZX_MINUS,
-//	ZX_PLUS,
-//	LAYER,
-//};
-
 // Circular constant
 const static double PI = 3.14159265359;
 
@@ -63,7 +41,7 @@ const static double DEG2RAD = PI / 180.0;
 
 static char programName[]="makeDHexaMesh";
 
-static char version[]="v1.1";
+static char version[]="v1.2";
 
 }
 
