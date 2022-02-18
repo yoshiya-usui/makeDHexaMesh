@@ -81,7 +81,8 @@ MeshGenerationDHexa::MeshGenerationDHexa():
 	m_isUsedThresholdsLimitDistanceBetweenLevelBoundaryAndObsSites(false),
 	m_partitioningType(HORIZONTAL_ONLY),
 	m_minimumSeaDepth(0.1),
-	m_topographyData(NULL)
+	m_topographyData(NULL),
+	m_is2DStructureAssumedForMesh(false)
 {}
 
 // Destructer
@@ -396,6 +397,10 @@ void MeshGenerationDHexa::readInputFile(){
 				exit(1);			
 			}
 		}
+		else if( line == "2D_STRUCTURE" ){
+			m_is2DStructureAssumedForMesh = true;
+			std::cout << "2-D structure is assumed for the mesh"  << std::endl;
+		}
 		else if( line == "END" ){
 			std::cout << "End of the data." << std::endl;
 			break;
@@ -418,11 +423,16 @@ void MeshGenerationDHexa::readInputFile(){
 			exit(1);			
 			break;
 	}
+	if(m_is2DStructureAssumedForMesh && m_levelLimitParameterCellPartitioning > 0 ){
+		std::cout << "Warning: Because 2-D structure is assumed, the upper limit of the level parameter cell partitioning is forced to be zero." << std::endl;	
+		m_levelLimitParameterCellPartitioning = 0;
+	}
 	std::cout << "Upper limit of the level parameter cell partitioning : " << m_levelLimitParameterCellPartitioning << std::endl;	
 
 	if( m_incorporateTopo ){
 		std::cout << "Threshold of sea depth : " << m_minimumSeaDepth << " (km)" << std::endl;	
 	}
+
 
 	if( getPartitioningType() != NO_PARTITIONING ){
 		m_observingSiteList.readObservingSiteData();
@@ -578,6 +588,9 @@ void MeshGenerationDHexa::calcInitialMeshData(){
 							info.parameterCell = 1;
 							break;
 						default:
+							if( m_is2DStructureAssumedForMesh ){
+								paramCellID = calcResisivityBlockIDOfInitialMeshFor2DStructure(ix, iy, iz);
+							}
 #ifdef _LAYERS
 							paramCellID = calcResisivityBlockID(ix, iy, iz);
 #endif
@@ -593,6 +606,9 @@ void MeshGenerationDHexa::calcInitialMeshData(){
 							info.parameterCell = 0;
 							break;
 						default:
+							if( m_is2DStructureAssumedForMesh ){
+								paramCellID = calcResisivityBlockIDOfInitialMeshFor2DStructure(ix, iy, iz);
+							}
 #ifdef _LAYERS
 							paramCellID = calcResisivityBlockID(ix, iy, iz);
 #endif
@@ -773,30 +789,81 @@ void MeshGenerationDHexa::reconstructResisivityDistribution( const std::set<int>
 			++paramCellIDNew;
 		}
 	}
-	int elemIndex(0);
-	for( std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex ){
-		if( itr->type == AIR || itr->type == SEA ){
-			continue;
+	if( m_is2DStructureAssumedForMesh ){
+		int elemIndex(0);
+		std::vector<int> parameterCellsOrg;
+		for( std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex ){
+			if( itr->type == AIR || itr->type == SEA ){
+				continue;
+			}
+			if( itr->level > 0 ){
+				continue;
+			}
+			if( !itr->isActive && itr->level != 0 ){
+				continue;
+			}
+			if( allChildrenAreConvertedToSea(elemIndex, elemsLandToSea) ){
+				continue;
+			}
+			const int paramCellIDOrg = itr->parameterCell;
+			parameterCellsOrg.push_back(paramCellIDOrg);
 		}
-		if( itr->level > levelIimit ){
-			continue;
+		std::sort(parameterCellsOrg.begin(), parameterCellsOrg.end());
+		parameterCellsOrg.erase( std::unique( parameterCellsOrg.begin(), parameterCellsOrg.end() ), parameterCellsOrg.end() );
+		for( std::vector<int>::const_iterator itrParamCells = parameterCellsOrg.begin(); itrParamCells != parameterCellsOrg.end(); ++itrParamCells ){
+			int elemIndex = 0;
+			for( std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex ){
+				if( itr->type == AIR || itr->type == SEA ){
+					continue;
+				}
+				if( itr->level > 0 ){
+					continue;
+				}
+				if( !itr->isActive && itr->level != 0 ){
+					continue;
+				}
+				if( allChildrenAreConvertedToSea(elemIndex, elemsLandToSea) ){
+					continue;
+				}
+				const int paramCellIDOrg = itr->parameterCell;
+				if( paramCellIDOrg != *itrParamCells ){
+					continue;
+				}
+				const double resistivity = m_parameterCellToResistivity[paramCellIDOrg];
+				const int fixFlag = m_parameterCellToFixFlag[paramCellIDOrg];
+				itr->parameterCell = paramCellIDNew;
+				giveSameParamCellIDToChildren(elemIndex, paramCellIDNew, elemsLandToSea);
+				parameterCellToResistivityNew.insert( std::make_pair(paramCellIDNew, resistivity) );
+				parameterCellToFixFlagNew.insert( std::make_pair(paramCellIDNew, fixFlag) );
+			}
+			++paramCellIDNew;
 		}
-		if( !itr->isActive && itr->level != levelIimit ){
-			continue;
+	}else{
+		int elemIndex(0);
+		for( std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex ){
+			if( itr->type == AIR || itr->type == SEA ){
+				continue;
+			}
+			if( itr->level > levelIimit ){
+				continue;
+			}
+			if( !itr->isActive && itr->level != levelIimit ){
+				continue;
+			}
+			if( allChildrenAreConvertedToSea(elemIndex, elemsLandToSea) ){
+				continue;
+			}
+			const int paramCellIDOrg = itr->parameterCell;
+			const double resistivity = m_parameterCellToResistivity[paramCellIDOrg];
+			const int fixFlag = m_parameterCellToFixFlag[paramCellIDOrg];
+			itr->parameterCell = paramCellIDNew;
+			giveSameParamCellIDToChildren(elemIndex, paramCellIDNew, elemsLandToSea);
+			parameterCellToResistivityNew.insert( std::make_pair(paramCellIDNew, resistivity) );
+			parameterCellToFixFlagNew.insert( std::make_pair(paramCellIDNew, fixFlag) );
+			++paramCellIDNew;
 		}
-		if( allChildrenAreConvertedToSea(elemIndex, elemsLandToSea) ){
-			continue;
-		}
-		const int paramCellIDOrg = itr->parameterCell;
-		const double resistivity = m_parameterCellToResistivity[paramCellIDOrg];
-		const int fixFlag = m_parameterCellToFixFlag[paramCellIDOrg];
-		itr->parameterCell = paramCellIDNew;
-		giveSameParamCellIDToChildren(elemIndex, paramCellIDNew, elemsLandToSea);
-		parameterCellToResistivityNew.insert( std::make_pair(paramCellIDNew, resistivity) );
-		parameterCellToFixFlagNew.insert( std::make_pair(paramCellIDNew, fixFlag) );
-		++paramCellIDNew;
 	}
-	elemIndex = 0;
+	int elemIndex = 0;
 	for( std::vector<ElementInfo>::const_iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex ){
 		if( itr->type != SEA ){
 			continue;
@@ -892,8 +959,24 @@ int MeshGenerationDHexa::calcResisivityBlockID( const int ix, const int iy, cons
 	int	blkID = m_numResisivityBlockAccumulated[iLayer] + m_numElemGroupX[iLayer]*iGy + iGx;
 
 	return blkID;
+
 }
 #endif
+
+// Output mesh data and resistivity model data
+int MeshGenerationDHexa::calcResisivityBlockIDOfInitialMeshFor2DStructure( const int ix, const int iy, const int iz ) const{
+
+	const int izInEarth = iz - m_edgeIndexOfEarthSurface;;
+	int blkID = -1;
+	if( m_includeSea ){
+		blkID = m_numYInit * izInEarth + iy + 2;
+	}else{
+		blkID = m_numYInit * izInEarth + iy + 1;
+	}
+
+	return blkID;
+
+}
 
 // Output mesh data and resistivity model data
 void MeshGenerationDHexa::outputMeshData() const{
@@ -1471,6 +1554,8 @@ void MeshGenerationDHexa::checkWhetherEachParameterCellContainsAtLeastOneActiveE
 void MeshGenerationDHexa::includeTopography( std::set<int>& elemsSeaToLand ){
 
 	if(!m_incorporateTopo){
+		std::map<int, double> dummy;
+		reconstructResisivityDistribution(elemsSeaToLand, dummy);
 		return;
 	}
 

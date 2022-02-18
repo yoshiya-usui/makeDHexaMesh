@@ -34,9 +34,9 @@ int main(){
 
 	meshGen->calcInitialMeshData(); // Generate mesh data
 	meshGen->calcResisivityDistributionForInitialMesh();
-//#ifdef _DEBUG_WRITE
-//	meshGen->outputVTK("MeshData_Init.vtk"); // Output VTK file
-//#endif
+#ifdef _DEBUG_WRITE
+	meshGen->outputVTK("MeshData_Init.vtk"); // Output VTK file
+#endif
 
 	meshGen->partitionMesh();
 #ifdef _MERGE

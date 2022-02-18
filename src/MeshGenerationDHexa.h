@@ -116,6 +116,10 @@ class MeshGenerationDHexa{
 		// Caluculate ID of resisivity block
 		int calcResisivityBlockID( const int ix, const int iy, const int iz );
 #endif
+
+		// Caluculate ID of resisivity block of the initial mesh for 2D structure
+		int calcResisivityBlockIDOfInitialMeshFor2DStructure( const int ix, const int iy, const int iz ) const;
+
 		// Output mesh data
 		void outputMeshData() const;
 
@@ -315,6 +319,9 @@ class MeshGenerationDHexa{
 
 		// Instance of the class TopographyData
 		TopographyData* m_topographyData;
+
+		// Flag specifing whether 2D structure is assumed for the mesh
+		bool m_is2DStructureAssumedForMesh;
 
 		// Get whether all children are converted to the sea
 		bool allChildrenAreConvertedToSea( const int elemIndex, const std::map<int, double>& elemsLandToSea ) const;
