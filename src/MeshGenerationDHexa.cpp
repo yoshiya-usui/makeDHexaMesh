@@ -963,7 +963,7 @@ int MeshGenerationDHexa::calcResisivityBlockID( const int ix, const int iy, cons
 }
 #endif
 
-// Output mesh data and resistivity model data
+// Caluculate ID of resisivity block of the initial mesh for 2D structure
 int MeshGenerationDHexa::calcResisivityBlockIDOfInitialMeshFor2DStructure( const int ix, const int iy, const int iz ) const{
 
 	const int izInEarth = iz - m_edgeIndexOfEarthSurface;;
@@ -1596,6 +1596,7 @@ void MeshGenerationDHexa::includeTopography( std::set<int>& elemsSeaToLand ){
 	}
 
 	reconstructResisivityDistribution(elemsSeaToLand, elemsLandToSea);
+
 	if( !elemsSeaToLand.empty() ){
 		reconstructElementOfEarthSurface();
 
@@ -3107,11 +3108,11 @@ void MeshGenerationDHexa::includeTopographyAux( const int iLevel, const int maxL
 		if( info.level != iLevel ){
 			continue;
 		}
-		if( !m_includeSea && calcAverageZCoord(elemID) > 0.0 ){
-			// If the average sea depth is positive, no topography is incorpolated
-			// Subsequently, sea resistivity is assigned to the elements
-			continue;
-		}
+		//if( !m_includeSea && calcAverageZCoord(elemID) > 0.0 ){
+		//	// If the average sea depth is positive, no topography is incorpolated
+		//	// Subsequently, sea resistivity is assigned to the elements
+		//	continue;
+		//}
 		for( int i = 0; i < 8; ++i ){
 			const int nodeID = info.nodes[i];
 			insertToVerticalNodesArray( nodeID, verticalNodesArray, horizontalCoordsArray );
@@ -3540,7 +3541,7 @@ void MeshGenerationDHexa::selectElementsToBeChangedToLandFromSea( std::set<int>&
 void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLand( std::map<int, double>& elemsLandToSea, std::map<int, double>& elemEarthSurfToSeaDepth  ) const{
 
 	if( m_includeSea ){
-		// This function is effective only if the sea depth is not defined
+		// This function is effective only when the smooth sea floor is NOT incorporated
 		return;
 	}
 
