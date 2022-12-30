@@ -324,6 +324,9 @@ class MeshGenerationDHexa{
 		bool m_is2DStructureAssumedForMesh;
 
 		// Get whether all children are converted to the sea
+		void addChildrenToLandCandidates( const int elemIndex, std::set<int>& elemsSeaToLand );
+
+		// Get whether all children are converted to the sea
 		bool allChildrenAreConvertedToSea( const int elemIndex, const std::map<int, double>& elemsLandToSea ) const;
 
 		// Get flag specifing whether inputted element is active 
@@ -362,6 +365,9 @@ class MeshGenerationDHexa{
 		// Calculate z-coordinate after including topography/bathymetry
 		double calcZCoordAfterIncludingTopography( const double zMin, const double zMax, const double zCoordSurfCur, const double zCoordSurfTarget,
 			const CommonParameters::XYZ& coordCur, const bool isSea ) const;
+
+		// Insert to vertical nodes array
+		bool doesAllChildrenHaveFlatSurface( const int elemIndex ) const;
 
 		// Insert to vertical nodes array
 		void insertToVerticalNodesArray( const int elemID, std::vector< std::set<int> >& verticalElementsArray,
@@ -404,7 +410,7 @@ class MeshGenerationDHexa{
 		void selectElementsToBeChangedToSeaFromLand( std::map<int, double>& elemsLandToSea, std::map<int, double>& elemEarthSurfToSeaDepth ) const;
 
 		// Auxiliary function for selecting elements to be changed to seat from land
-		void selectElementsToBeChangedToSeaFromLandAux( const int elemIndex, const double resistivity, std::map<int, double>& elemsLandToSea ) const;
+		void selectElementsToBeChangedToSeaFromLandAux( const int level, const double depthAvg, int elemIndex, std::map<int, double>& elemsLandToSea ) const;
 
 		// Calculated average Z coordinate in an element
 		double calcAverageZCoord( const int elemIndex ) const;

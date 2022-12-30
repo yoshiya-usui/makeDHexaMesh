@@ -780,13 +780,12 @@ void MeshGenerationDHexa::reconstructResisivityDistribution( const std::set<int>
 	}else{
 		for( std::map<int, double>::const_iterator itr = elemsLandToSea.begin(); itr != elemsLandToSea.end(); ++itr ){
 			ElementInfo& info = m_elemInfo[itr->first];
-			if( !info.isActive ){
-				continue;
+			if( info.isActive ){
+				info.parameterCell = paramCellIDNew;
+				parameterCellToResistivityNew.insert( std::make_pair(paramCellIDNew, itr->second) );
+				parameterCellToFixFlagNew.insert( std::make_pair(paramCellIDNew, 1) );
+				++paramCellIDNew;
 			}
-			info.parameterCell = paramCellIDNew;
-			parameterCellToResistivityNew.insert( std::make_pair(paramCellIDNew, itr->second) );
-			parameterCellToFixFlagNew.insert( std::make_pair(paramCellIDNew, 1) );
-			++paramCellIDNew;
 		}
 	}
 	if( m_is2DStructureAssumedForMesh ){
@@ -1649,6 +1648,25 @@ bool MeshGenerationDHexa::isActive( const int elemID ) const{
 }
 
 // Get whether all children are converted to the sea
+void MeshGenerationDHexa::addChildrenToLandCandidates( const int elemIndex, std::set<int>& elemsSeaToLand ){
+
+	if( elemIndex < 0 ){
+		return;
+	}
+	ElementInfo& elemInfo = m_elemInfo[elemIndex];
+	if( elemInfo.type == SEA && elemsSeaToLand.find(elemIndex) == elemsSeaToLand.end() ){
+		elemsSeaToLand.insert( elemIndex );
+	}
+	for( int i = 0; i < 8; ++i ){
+		if( elemInfo.childs[i] < 0 ){
+			continue;
+		}
+		addChildrenToLandCandidates(elemInfo.childs[i], elemsSeaToLand);
+	}
+	
+}
+
+// Get whether all children are converted to the sea
 bool MeshGenerationDHexa::allChildrenAreConvertedToSea( const int elemIndex, const std::map<int, double>& elemsLandToSea ) const{
 
 	if( elemsLandToSea.find(elemIndex) == elemsLandToSea.end() ){
@@ -1656,16 +1674,15 @@ bool MeshGenerationDHexa::allChildrenAreConvertedToSea( const int elemIndex, con
 		return false;
 	}
 	const ElementInfo& elemInfo = m_elemInfo[elemIndex];
-	bool isSea(true);
 	for( int i = 0; i < 8; ++i ){
 		if( elemInfo.childs[i] < 0 ){
 			continue;
 		}
 		if( !allChildrenAreConvertedToSea(elemInfo.childs[i], elemsLandToSea) ){
-			isSea = false;
+			return false;
 		}
 	}
-	return isSea;
+	return true;
 
 }
 
@@ -2950,6 +2967,33 @@ double MeshGenerationDHexa::calcZCoordAfterIncludingTopography( const double zMi
 
 }
 
+// Check whether all children have flat surface
+bool MeshGenerationDHexa::doesAllChildrenHaveFlatSurface( const int elemIndex ) const{
+
+	const ElementInfo& elemInfo = m_elemInfo[elemIndex];
+	const double eps = 1.0e-6;
+	for( int i = 0; i < 4; ++i ){
+		const int nodeAtTop = elemInfo.nodes[i];
+		const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
+		if( fabs(depthTop) > eps ){
+			// The following procedure is performed only when the surface is parallel to the horizontal plane of z = 0km
+			return false;
+		}
+	}
+
+	for( int i = 0; i < 4; ++i ){
+		const int elemIndexChild = elemInfo.childs[i];
+		if( elemIndexChild < 0 ){
+			continue;
+		}
+		if( !doesAllChildrenHaveFlatSurface(elemIndexChild) ){
+			return false;
+		}
+	}
+
+	return true;
+
+}
 
 // Insert to vertical nodes array
 void MeshGenerationDHexa::insertToVerticalNodesArray( const int nodeID, std::vector< std::set<int> >& verticalNodesArray,
@@ -3217,7 +3261,6 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 	for( std::set<int>::const_iterator itr = m_elementOfSeaSurfaceWithInactiveElements.begin();
 		itr != m_elementOfSeaSurfaceWithInactiveElements.end(); ++itr ){
 		const int elemID = *itr;
-		elementsLand.insert(elemID);
 		const ElementInfo& info = m_elemInfo[elemID];
 		if( info.level != iLevel ){
 			continue;
@@ -3226,6 +3269,7 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 			// Go to the following procedure only if all children belong to land or air
 			continue;
 		}
+		elementsLand.insert(elemID);
 		for( int i = 0; i < 8; ++i ){
 			const int nodeID = info.nodes[i];
 			insertToVerticalNodesArray( nodeID, verticalNodesArray, horizontalCoordsArray );
@@ -3468,13 +3512,16 @@ void MeshGenerationDHexa::selectElementsToBeChangedToLandFromSea( std::set<int>&
 			continue;
 		}
 		// Search upward
-		const double seaDepth = calcAverageZCoord(elemIndex);
-		int elemIDNext = info.neib[4][0];
 		int level = info.level;
+		int elemIDNext = info.neib[4][0];
+		while( m_elemInfo[elemIDNext].level > level ){
+			elemIDNext = m_elemInfo[elemIDNext].parent;
+		}
 		while( elemIDNext >= 0 ){
 			if( m_elemInfo[elemIDNext].type == AIR ){
 				break;
 			}
+			const double seaDepth = calcAverageZCoord(elemIDNext);
 			bool isLand(true);
 			for( int i = 0; i < 4; ++i ){
 				const int nodeAtTop = m_elemInfo[elemIDNext].nodes[i];
@@ -3486,25 +3533,11 @@ void MeshGenerationDHexa::selectElementsToBeChangedToLandFromSea( std::set<int>&
 			if( !isLand ){
 				break;
 			}
-			if( m_elemInfo[elemIDNext].level < level ){
-				elemsSeaToLand.insert(elemIDNext);
-			}else if( m_elemInfo[elemIDNext].level > level ){
-				elemIDNext = m_elemInfo[elemIDNext].parent;
-				if( elemIDNext < 0 ){
-					break;
-				}
-				for( int i = 0 ; i < 8; ++i){
-					const int elemIDChild = m_elemInfo[elemIDNext].childs[i];
-					if( elemIDChild < 0 ){
-						continue;
-					}
-					elemsSeaToLand.insert(elemIDChild);
-				}
-			}else{
-				elemsSeaToLand.insert(elemIDNext);
-			}
-			level = m_elemInfo[elemIDNext].level;
+			addChildrenToLandCandidates(elemIDNext, elemsSeaToLand);
 			elemIDNext = m_elemInfo[elemIDNext].neib[4][0];
+			while( m_elemInfo[elemIDNext].level > level ){
+				elemIDNext = m_elemInfo[elemIDNext].parent;
+			}
 		}
 	}
 
@@ -3545,96 +3578,74 @@ void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLand( std::map<int, 
 		return;
 	}
 
-	const double eps = 1.0e-6;
 	for( std::set<int>::const_iterator itr = m_elementOfEarthSurfaceWithInactiveElements.begin(); itr != m_elementOfEarthSurfaceWithInactiveElements.end(); ++itr ){
 		int elemIndex = *itr;
 		if( elemIndex < 0 ){
 			continue;
 		}
-		const ElementInfo& info = m_elemInfo[elemIndex];
-		bool searchDownward(true);
-		for( int i = 0; i < 4; ++i ){
-			const int nodeAtTop = info.nodes[i];
-			const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
-			if( fabs(depthTop) > eps ){
-				// The following procedure is performed only when the surface is parallel to the horizontal plane of z = 0km
-				searchDownward = false;
-			}
-		}
-		if( !searchDownward ){
+		if( !doesAllChildrenHaveFlatSurface(elemIndex) ){
 			continue;
 		}
 		const double depthAvg = calcAverageZCoord(elemIndex);
-		if( depthAvg < 0.0 ){
+		if( depthAvg < CommonParameters::EPS ){
 			continue;
 		}
-		elemEarthSurfToSeaDepth.insert( std::make_pair(*itr, depthAvg) );
-		const int level = info.level;
-		while( elemIndex >= 0 ){
-			assert( checkWhetherElementHasFlatTopAndBottomSurfaces(m_elemInfo[elemIndex]) );
-			if( m_elemInfo[elemIndex].type != LAND ){
-				break;
-			}
-			const int nodeAtTop = m_elemInfo[elemIndex].nodes[0];
-			const int nodeAtBot = m_elemInfo[elemIndex].nodes[7];
-			const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
-			const double depthBot = m_nodeCoordinates[nodeAtBot].Z;
-			if( depthTop > depthAvg ){
-				// The element is below the sea floor
-				break;
-			}
-			if( depthAvg > depthBot ){
-				// The whole part of the element is the sea
-				elemsLandToSea.insert( std::make_pair( elemIndex, m_seaResistivity ) );
-			}else{
-				const double elemHeight = fabs( depthBot - depthTop );
-				const double d1 = ( depthAvg - depthTop ) / elemHeight;
-				const double d2 = ( depthBot - depthAvg ) / elemHeight;
-				if( d1 < 0.01 ){
-					break;
-				}
-				const double conductivitySea = 1.0 / m_seaResistivity;
-				const double conductivityOrg = 1.0 / getResistivityFromElement(m_elemInfo[elemIndex]);
-				const double conductivityNew = conductivitySea * d1 + conductivityOrg * d2;
-				elemsLandToSea.insert( std::make_pair( elemIndex, 1.0 / conductivityNew ) );
-				break;
-			}
-			// Search downward
-			int elemIDNext = m_elemInfo[elemIndex].neib[5][0];
-			if( m_elemInfo[elemIDNext].level < level ){
-				break;
-			}else if( m_elemInfo[elemIDNext].level > level ){
-				elemIDNext = m_elemInfo[elemIDNext].parent;
-				if( elemIDNext < 0 ){
-					break;
-				}
-			}
-			elemIndex = elemIDNext;
-		}
+		elemEarthSurfToSeaDepth.insert( std::make_pair(elemIndex, depthAvg) );
+		const ElementInfo& info = m_elemInfo[elemIndex];
+		selectElementsToBeChangedToSeaFromLandAux(info.level, depthAvg, elemIndex, elemsLandToSea);
 	}
-
-	std::map<int, double> elemsLandToSeaNew = elemsLandToSea;
-	for( std::map<int, double>::const_iterator itr = elemsLandToSea.begin(); itr != elemsLandToSea.end(); ++itr ){
-		selectElementsToBeChangedToSeaFromLandAux( itr->first, itr->second, elemsLandToSeaNew );
-	}
-	elemsLandToSea.swap(elemsLandToSeaNew);
 
 }
 
 // Auxiliary function for selecting elements to be changed to seat from land
-void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLandAux( const int elemIndex, const double resistivity, std::map<int, double>& elemsLandToSea ) const{
+void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLandAux( const int level, const double depthAvg, int elemIndex, std::map<int, double>& elemsLandToSea ) const{
 
-	const ElementInfo& elemInfo = m_elemInfo[elemIndex];
-	for( int i = 0; i < 8; ++i ){
-		const int elemIndexChild = elemInfo.childs[i] ;
-		if( elemIndexChild < 0 ){
-			continue;
+	while( elemIndex >= 0 ){
+		assert( checkWhetherElementHasFlatTopAndBottomSurfaces(m_elemInfo[elemIndex]) );
+		assert( m_elemInfo[elemIndex].level == level );
+		if( m_elemInfo[elemIndex].type != LAND ){
+			break;
 		}
-		if( elemsLandToSea.find(elemIndexChild) == elemsLandToSea.end() ){
-			elemsLandToSea.insert( std::make_pair(elemIndexChild, resistivity) );
-			selectElementsToBeChangedToSeaFromLandAux(elemIndexChild, resistivity, elemsLandToSea );
+		const int nodeAtTop = m_elemInfo[elemIndex].nodes[0];
+		const int nodeAtBot = m_elemInfo[elemIndex].nodes[7];
+		const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
+		const double depthBot = m_nodeCoordinates[nodeAtBot].Z;
+		if( depthTop > depthAvg ){
+			// The element is below the sea floor
+			break;
 		}
+		if( depthAvg > depthBot ){
+			// The whole part of the element is the sea
+			elemsLandToSea.insert( std::make_pair( elemIndex, m_seaResistivity ) );
+		}else{
+			const double elemHeight = fabs( depthBot - depthTop );
+			const double d1 = ( depthAvg - depthTop ) / elemHeight;
+			const double d2 = ( depthBot - depthAvg ) / elemHeight;
+			if( d1 < 0.01 ){
+				break;
+			}
+			const double conductivitySea = 1.0 / m_seaResistivity;
+			const double conductivityOrg = 1.0 / getResistivityFromElement(m_elemInfo[elemIndex]);
+			const double conductivityNew = conductivitySea * d1 + conductivityOrg * d2;
+			elemsLandToSea.insert( std::make_pair( elemIndex, 1.0 / conductivityNew ) );
+			break;
+		}
+		// Search downward
+		int elemIDNext = m_elemInfo[elemIndex].neib[5][0];
+		if( m_elemInfo[elemIDNext].level < level ){
+			break;
+		}else if( m_elemInfo[elemIDNext].level > level ){
+			const double levelNext = m_elemInfo[elemIDNext].level;
+			for( int i = 0; i < 4; ++i ){
+				const int elemIDNext = m_elemInfo[elemIndex].neib[5][i];
+				selectElementsToBeChangedToSeaFromLandAux(levelNext, depthAvg, elemIDNext, elemsLandToSea);
+			}
+			elemIDNext = m_elemInfo[elemIDNext].parent;
+		}
+		elemIndex = elemIDNext;
 	}
+
+	return;
 
 }
 
@@ -3893,13 +3904,12 @@ CommonParameters::XYZ MeshGenerationDHexa::calculateCenterCoordOfElemFace( const
 void MeshGenerationDHexa::giveSameParamCellIDToChildren( const int elemIndex, const int paramCellID, const std::map<int, double>& elemsLandToSea  ){
 
 	ElementInfo& elemInfo = m_elemInfo[elemIndex];
-	elemInfo.parameterCell = paramCellID;
+	if( elemsLandToSea.find(elemIndex) == elemsLandToSea.end() ){
+		// Skip when the element is converted to the sea
+		elemInfo.parameterCell = paramCellID;
+	}
 	for( int i = 0; i < 8; ++i ){
 		if( elemInfo.childs[i] < 0 ){
-			continue;
-		}
-		if( elemsLandToSea.find(elemInfo.childs[i]) != elemsLandToSea.end() ){
-			// Skip when the element is converted to the sea
 			continue;
 		}
 		giveSameParamCellIDToChildren(elemInfo.childs[i], paramCellID, elemsLandToSea);
