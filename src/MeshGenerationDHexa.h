@@ -152,10 +152,10 @@ class MeshGenerationDHexa{
 
 	private:
 		// Ellipsoids used for specifing edge lentgh
-		Ellipsoids m_ellipsoids;
+		std::vector <Ellipsoids*> m_ellipsoids;
 
 		// Cuboids used for specifing edge lentgh
-		Cuboids m_cuboids;
+		std::vector <Cuboids*> m_cuboids;
 
 		// Observation site list for specifing edge lentgh
 		ObservingSiteList m_observingSiteList;
@@ -323,7 +323,7 @@ class MeshGenerationDHexa{
 		// Flag specifing whether 2D structure is assumed for the mesh
 		bool m_is2DStructureAssumedForMesh;
 
-		// Get whether all children are converted to the sea
+		// Add children to candidates of the elements to be changed to the land
 		void addChildrenToLandCandidates( const int elemIndex, std::set<int>& elemsSeaToLand );
 
 		// Get whether all children are converted to the sea
@@ -366,7 +366,7 @@ class MeshGenerationDHexa{
 		double calcZCoordAfterIncludingTopography( const double zMin, const double zMax, const double zCoordSurfCur, const double zCoordSurfTarget,
 			const CommonParameters::XYZ& coordCur, const bool isSea ) const;
 
-		// Insert to vertical nodes array
+		// Check whether all children have flat surface
 		bool doesAllChildrenHaveFlatSurface( const int elemIndex ) const;
 
 		// Insert to vertical nodes array

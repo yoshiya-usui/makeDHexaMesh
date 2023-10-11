@@ -40,7 +40,7 @@ public:
 	~Cuboids();
 
 	// Read parameters
-	void readParameters( const std::string& fileName  );
+	void readParameters(std::ifstream& ifs);
 
 	// Calculate maximum horizontal length of the specified point
 	double calcMaximumEdgeLengthHorizontal( const CommonParameters::XYZ& coord ) const;

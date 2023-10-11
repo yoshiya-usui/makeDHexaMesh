@@ -145,10 +145,18 @@ MeshGenerationDHexa::~MeshGenerationDHexa(){
 	}
 
 
-	if( 	m_topographyData != NULL ){
+	if( m_topographyData != NULL ){
 		delete m_topographyData;
 	}
 
+	for (std::vector<Ellipsoids*>::iterator itr = m_ellipsoids.begin(); itr != m_ellipsoids.end(); ++itr) {
+		delete* itr;
+	}
+
+	for (std::vector<Cuboids*>::iterator itr = m_cuboids.begin(); itr != m_cuboids.end(); ++itr) {
+		delete* itr;
+	}
+	
 }
 
 void MeshGenerationDHexa::readInputFile(){
@@ -163,9 +171,6 @@ void MeshGenerationDHexa::readInputFile(){
 		std::cerr << "File open error : " << fileName << " !!" << std::endl;
 		exit(1);
 	}
-
-	m_ellipsoids.readParameters( fileName );
-	m_cuboids.readParameters( fileName );
 
 	while(!inputFile.eof()){
 		std::string line;
@@ -401,6 +406,16 @@ void MeshGenerationDHexa::readInputFile(){
 			m_is2DStructureAssumedForMesh = true;
 			std::cout << "2-D structure is assumed for the mesh"  << std::endl;
 		}
+		else if (line == "CUBOIDS") {
+			Cuboids* obj = new Cuboids();
+			obj->readParameters(inputFile);
+			m_cuboids.push_back(obj);
+		}
+		else if (line == "ELLIPSOIDS") {
+		Ellipsoids* obj = new Ellipsoids();
+			obj->readParameters(inputFile);
+			m_ellipsoids.push_back(obj);
+		}
 		else if( line == "END" ){
 			std::cout << "End of the data." << std::endl;
 			break;
@@ -432,7 +447,6 @@ void MeshGenerationDHexa::readInputFile(){
 	if( m_incorporateTopo ){
 		std::cout << "Threshold of sea depth : " << m_minimumSeaDepth << " (km)" << std::endl;	
 	}
-
 
 	if( getPartitioningType() != NO_PARTITIONING ){
 		m_observingSiteList.readObservingSiteData();
@@ -1647,7 +1661,7 @@ bool MeshGenerationDHexa::isActive( const int elemID ) const{
 
 }
 
-// Get whether all children are converted to the sea
+// Add children to candidates of the elements to be changed to the land
 void MeshGenerationDHexa::addChildrenToLandCandidates( const int elemIndex, std::set<int>& elemsSeaToLand ){
 
 	if( elemIndex < 0 ){
@@ -1883,8 +1897,19 @@ int MeshGenerationDHexa::partitionMeshOneTime(){
 		const int elemIndex = itr->second.first;
 		const double maxLength = itr->second.second;
 		const CommonParameters::XYZ coord = m_nodeCoordinates[nodeIndex];
-		const double tmp = std::min( m_ellipsoids.calcMaximumEdgeLengthHorizontal(coord), m_cuboids.calcMaximumEdgeLengthHorizontal(coord) );
-		const double upperLimit = std::min( tmp, m_observingSiteList.calcMaximumLengthHorizontal(coord) );
+		double upperLimit = m_observingSiteList.calcMaximumLengthHorizontal(coord);
+		for (std::vector<Ellipsoids*>::const_iterator itr = m_ellipsoids.begin(); itr != m_ellipsoids.end(); ++itr) {
+			const double dbuf = (*itr)->calcMaximumEdgeLengthHorizontal(coord);
+			if (dbuf < upperLimit) {
+				upperLimit = dbuf;
+			}
+		}
+		for (std::vector<Cuboids*>::const_iterator itr = m_cuboids.begin(); itr != m_cuboids.end(); ++itr) {
+			const double dbuf = (*itr)->calcMaximumEdgeLengthHorizontal(coord);
+			if (dbuf < upperLimit) {
+				upperLimit = dbuf;
+			}
+		}
 		if( maxLength > upperLimit ){
 			elementsToBePartitioned.insert(elemIndex);
 		}
@@ -1899,8 +1924,19 @@ int MeshGenerationDHexa::partitionMeshOneTime(){
 			const int elemIndex = itr->second.first;
 			const double maxLength = itr->second.second;
 			const CommonParameters::XYZ coord = m_nodeCoordinates[nodeIndex];
-			const double tmp = std::min( m_ellipsoids.calcMaximumEdgeLengthVertical(coord), m_cuboids.calcMaximumEdgeLengthVertical(coord) );
-			const double upperLimit = std::min( tmp, m_observingSiteList.calcMaximumLengthVertical(coord) );
+			double upperLimit = m_observingSiteList.calcMaximumLengthVertical(coord);
+			for (std::vector<Ellipsoids*>::const_iterator itr = m_ellipsoids.begin(); itr != m_ellipsoids.end(); ++itr) {
+				const double dbuf = (*itr)->calcMaximumEdgeLengthVertical(coord);
+				if (dbuf < upperLimit) {
+					upperLimit = dbuf;
+			}
+		}
+			for (std::vector<Cuboids*>::const_iterator itr = m_cuboids.begin(); itr != m_cuboids.end(); ++itr) {
+				const double dbuf = (*itr)->calcMaximumEdgeLengthVertical(coord);
+				if (dbuf < upperLimit) {
+					upperLimit = dbuf;
+				}
+			}
 			if( maxLength > upperLimit ){
 				elementsToBePartitioned.insert(elemIndex);
 			}
@@ -3251,7 +3287,7 @@ void MeshGenerationDHexa::includeTopographyAux( const int iLevel, const int maxL
 
 }
 
-// Auxiliary function for including topography for land are changed from the sea
+// Auxiliary function for changing the sea to land
 void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int maxLevel, const std::vector<CommonParameters::XYZ>& nodeCoordOrg, const std::multimap<int,int>& nodeToElem ){
 
 	std::vector< std::set<int> > verticalNodesArray;
@@ -3635,7 +3671,7 @@ void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLandAux( const int l
 		if( m_elemInfo[elemIDNext].level < level ){
 			break;
 		}else if( m_elemInfo[elemIDNext].level > level ){
-			const double levelNext = m_elemInfo[elemIDNext].level;
+			const int levelNext = m_elemInfo[elemIDNext].level;
 			for( int i = 0; i < 4; ++i ){
 				const int elemIDNext = m_elemInfo[elemIndex].neib[5][i];
 				selectElementsToBeChangedToSeaFromLandAux(levelNext, depthAvg, elemIDNext, elemsLandToSea);
