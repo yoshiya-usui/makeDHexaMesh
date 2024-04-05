@@ -204,6 +204,12 @@ void MeshGenerationDHexa::readInputFile(){
 				inputFile >> m_CoordinatesXInit[i];
 				std::cout << m_CoordinatesXInit[i] << " ";
 			}
+			for (int i = 1; i < m_numXInit + 1; ++i) {
+				if( fabs(m_CoordinatesXInit[i] - m_CoordinatesXInit[i - 1]) < CommonParameters::EPS ){
+					std::cerr << "Two edge locations (" << m_CoordinatesXInit[i - 1] <<  " km and " << m_CoordinatesXInit[i] <<  " km) are too close!" << std::endl;
+					exit(1);
+				}
+			}
 			std::cout << std::endl;
 			m_hasXCoordinatesRead = true;
 		}
@@ -221,6 +227,12 @@ void MeshGenerationDHexa::readInputFile(){
 				inputFile >> m_CoordinatesYInit[i];
 				std::cout << m_CoordinatesYInit[i] << " " ;
 			}
+			for (int i = 1; i < m_numYInit + 1; ++i) {
+				if (fabs(m_CoordinatesYInit[i] - m_CoordinatesYInit[i - 1]) < CommonParameters::EPS) {
+					std::cerr << "Two edge locations (" << m_CoordinatesYInit[i - 1] << " km and " << m_CoordinatesYInit[i] << " km) are too close!" << std::endl;
+					exit(1);
+				}
+			}
 			std::cout << std::endl;
 			m_hasYCoordinatesRead = true;
 		}
@@ -237,6 +249,12 @@ void MeshGenerationDHexa::readInputFile(){
 			for( int i = 0; i < m_numZInit + 1; ++i ){
 				inputFile >> m_CoordinatesZInit[i];
 				std::cout << m_CoordinatesZInit[i] << " ";
+			}
+			for (int i = 1; i < m_numZInit + 1; ++i) {
+				if (fabs(m_CoordinatesZInit[i] - m_CoordinatesZInit[i - 1]) < CommonParameters::EPS) {
+					std::cerr << "Two edge locations (" << m_CoordinatesZInit[i - 1] << " km and " << m_CoordinatesZInit[i] << " km) are too close!" << std::endl;
+					exit(1);
+				}
 			}
 			std::cout << std::endl;
 			m_hasZCoordinatesRead = true;
