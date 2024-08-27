@@ -37,7 +37,7 @@
 double MeshGenerationDHexa::distanceConversion = 1000;
 
 // Constructer
-MeshGenerationDHexa::MeshGenerationDHexa():
+MeshGenerationDHexa::MeshGenerationDHexa() :
 	m_numXInit(0),
 	m_numYInit(0),
 	m_numZInit(0),
@@ -83,7 +83,60 @@ MeshGenerationDHexa::MeshGenerationDHexa():
 	m_minimumSeaDepth(0.1),
 	m_topographyData(NULL),
 	m_is2DStructureAssumedForMesh(false)
-{}
+{
+	// Abscissas of two point Gauss quadrature
+	m_abscissas2Point[0] = -1.0 / sqrt(3.0);
+	m_abscissas2Point[1] = 1.0 / sqrt(3.0);
+
+	// Weights of two point Gauss quadrature
+	m_weights2Point[0] = 1.0;
+	m_weights2Point[1] = 1.0;
+
+	// Calculate integral points and weights of two point Gauss quadrature
+	int ip(0);
+	for (int i = 0; i < 2; ++i) {
+		for (int j = 0; j < 2; ++j) {
+			for (int k = 0; k < 2; ++k) {
+				m_integralPointXi[ip] = m_abscissas2Point[i];
+				m_integralPointEta[ip] = m_abscissas2Point[j];
+				m_integralPointZeta[ip] = m_abscissas2Point[k];
+				m_weights[ip] = m_weights2Point[i] * m_weights2Point[j] * m_weights2Point[k];
+				++ip;
+			}
+		}
+	}
+
+	// Array of reference coord xi values for each node
+	m_xiAtNode[0] = -1.0;
+	m_xiAtNode[1] = 1.0;
+	m_xiAtNode[2] = 1.0;
+	m_xiAtNode[3] = -1.0;
+	m_xiAtNode[4] = -1.0;
+	m_xiAtNode[5] = 1.0;
+	m_xiAtNode[6] = 1.0;
+	m_xiAtNode[7] = -1.0;
+
+	// Array of reference coord eta values for each node
+	m_etaAtNode[0] = -1.0;
+	m_etaAtNode[1] = -1.0;
+	m_etaAtNode[2] = 1.0;
+	m_etaAtNode[3] = 1.0;
+	m_etaAtNode[4] = -1.0;
+	m_etaAtNode[5] = -1.0;
+	m_etaAtNode[6] = 1.0;
+	m_etaAtNode[7] = 1.0;
+
+	// Array of reference coord zeta values for each node
+	m_zetaAtNode[0] = -1.0;
+	m_zetaAtNode[1] = -1.0;
+	m_zetaAtNode[2] = -1.0;
+	m_zetaAtNode[3] = -1.0;
+	m_zetaAtNode[4] = 1.0;
+	m_zetaAtNode[5] = 1.0;
+	m_zetaAtNode[6] = 1.0;
+	m_zetaAtNode[7] = 1.0;
+
+}
 
 // Destructer
 MeshGenerationDHexa::~MeshGenerationDHexa(){
@@ -1215,6 +1268,13 @@ void MeshGenerationDHexa::outputVTK( const std::string& fileName ) const{
 	for( int iElem = 0 ; iElem < numElemTotal; ++iElem ){
 		const int level = m_elemInfo[iElem].level;
 		vtkFile << level << std::endl;
+	}
+
+	vtkFile << "SCALARS Volume float" << std::endl;
+	vtkFile << "LOOKUP_TABLE default" << std::endl;
+	for (int iElem = 0; iElem < numElemTotal; ++iElem) {
+		const double volume = calculateVolume(iElem);
+		vtkFile << volume << std::endl;
 	}
 
 	vtkFile << "POINT_DATA " << numNodeTotal << std::endl;
@@ -2998,7 +3058,6 @@ double MeshGenerationDHexa::calcZCoordAfterIncludingTopography( const double zMi
 	const double zDiffAtSurf = zCoordSurfTarget - zCoordSurfCur;
 
 	if( isSea ){
-		const double zSeaBot = m_seaDepth;
 		if( zCur >= zCoordSurfCur ){
 			const double factor = (zMax - zCur) / std::max(zMax - zCoordSurfCur, 1e-6);
 			return zCur + zDiffAtSurf * factor;
@@ -3009,10 +3068,10 @@ double MeshGenerationDHexa::calcZCoordAfterIncludingTopography( const double zMi
 		}
 	}else{
 		if( zCur >= zCoordSurfCur ){
-			const double factor = (zMax - zCur) / (zMax - zCoordSurfCur);
+			const double factor = (zMax - zCur) / std::max(zMax - zCoordSurfCur, 1e-6);
 			return zCur + zDiffAtSurf * factor;
 		}else{
-			const double factor = (zCur - zMin) / (zCoordSurfCur - zMin);
+			const double factor = (zCur - zMin) / std::max(zCoordSurfCur - zMin, 1e-6);
 			return zCur + zDiffAtSurf * factor;
 		}
 	}
@@ -3120,17 +3179,30 @@ bool MeshGenerationDHexa::isConnectedToLowerLevelElementExceptTopAndBottom( cons
 bool MeshGenerationDHexa::isNotConnectedToEightSameLevelElementsExceptTopAndBottom( const std::set<int>& nodeIDs, const int level, const double zMin, const double zMax, 
 	const std::multimap<int, int>& nodeToElem ) const{
 
+	const double eps = 1.0e-6;
+	const double xMin = m_CoordinatesXInit[0];
+	const double xMax = m_CoordinatesXInit[m_numXInit];
+	const double yMin = m_CoordinatesYInit[0];
+	const double yMax = m_CoordinatesYInit[m_numYInit];
 	std::vector<double> zCoords;
 	for( std::set<int>::const_iterator itr = nodeIDs.begin(); itr != nodeIDs.end(); ++itr ){
 		const int nodeID = *itr;
 		const int numElemSameLevel = getNumOflElementsConnected(nodeID, level, nodeToElem);
-		if( numElemSameLevel != 8 ){
-			const double zCoord = m_nodeCoordinates[nodeID].Z;
-			zCoords.push_back(zCoord);
+		if (fabs(m_nodeCoordinates[nodeID].X - xMin) < eps || fabs(m_nodeCoordinates[nodeID].X - xMax) < eps ||
+			fabs(m_nodeCoordinates[nodeID].Y - yMin) < eps || fabs(m_nodeCoordinates[nodeID].Y - yMax) < eps){
+			// Node locates at a side boundary 
+			if (numElemSameLevel != 4) {
+				const double zCoord = m_nodeCoordinates[nodeID].Z;
+				zCoords.push_back(zCoord);
+			}
+		}else{
+			if (numElemSameLevel != 8) {
+				const double zCoord = m_nodeCoordinates[nodeID].Z;
+				zCoords.push_back(zCoord);
+			}
 		}
 	}
 
-	const double eps = 1.0e-6;
 	if( static_cast<int>( zCoords.size() ) > 2 ){
 		return true;
 	}
@@ -3274,6 +3346,9 @@ void MeshGenerationDHexa::includeTopographyAux( const int iLevel, const int maxL
 				const CommonParameters::XY coordXY = {coordOrg.X, coordOrg.Y};
 				if( m_includeSea ){
 					const double zCoordSurfTarget = std::max( m_topographyData->interpolateZCoord(coordXY), m_minimumSeaDepth );
+					if (zCoordSurfTarget < zMin || zCoordSurfTarget > zMax) {
+						break;
+					}
 					for( std::set<int>::const_iterator itrAux = itrArray->begin(); itrAux != itrArray->end(); ++itrAux ){
 						const int nodeIDAux = *itrAux;
 						m_nodeCoordinates[nodeIDAux].Z = calcZCoordAfterIncludingTopography(zMin, zMax, coordCur.Z, zCoordSurfTarget, m_nodeCoordinates[nodeIDAux], true);
@@ -3283,6 +3358,9 @@ void MeshGenerationDHexa::includeTopographyAux( const int iLevel, const int maxL
 					if( zCoordSurfTarget > 0.0 ){
 						// The upper limit of the depth is zero
 						zCoordSurfTarget = 0.0;
+					}
+					if (zCoordSurfTarget < zMin || zCoordSurfTarget > zMax) {
+						break;
 					}
 					for( std::set<int>::const_iterator itrAux = itrArray->begin(); itrAux != itrArray->end(); ++itrAux ){
 						const int nodeIDAux = *itrAux;
@@ -3412,6 +3490,9 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 				}
 				const CommonParameters::XY coordXY = {coordOrg.X, coordOrg.Y};
 				const double zCoordSurfTarget = m_topographyData->interpolateZCoord(coordXY);
+				if ( zCoordSurfTarget < zMin || zCoordSurfTarget > zMax ) {
+					break;
+				}
 				for( std::set<int>::const_iterator itrAux = itrArray->begin(); itrAux != itrArray->end(); ++itrAux ){
 					const int nodeIDAux = *itrAux;
 					m_nodeCoordinates[nodeIDAux].Z = calcZCoordAfterIncludingTopography(zMin, zMax, coordCur.Z, zCoordSurfTarget, m_nodeCoordinates[nodeIDAux], false);
@@ -4180,6 +4261,96 @@ bool MeshGenerationDHexa::checkWhetherElementHasFlatTopAndBottomSurfaces( const 
 	}
 
 	return true;
+
+}
+
+// Check element volumes
+void MeshGenerationDHexa::checkElementVolumes(){
+
+	int elemIndex(0);
+	for (std::vector<ElementInfo>::const_iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex) {
+		const double volume = calculateVolume(elemIndex);
+		if (volume < CommonParameters::EPS) {
+			std::cout << "Warning : Too small element volume! " << volume << std::endl;
+			std::cout << "          Element index: " << elemIndex << std::endl;
+			std::cout << "          Element type : " << itr->type << (itr->isActive ? "" : " (not active)") << std::endl;
+			std::cout << "          Level: " << itr->level << std::endl;
+			for (int iNode = 0; iNode < 8; ++iNode) {
+				std::cout << "          Node#" << iNode << ": (x,y,z)=(";
+				const int nodeIndex = itr->nodes[iNode];
+				std::cout << m_nodeCoordinates[nodeIndex].X << ",";
+				std::cout << m_nodeCoordinates[nodeIndex].Y << ",";
+				std::cout << m_nodeCoordinates[nodeIndex].Z << ")" << std::endl;
+			}
+		}
+	}
+
+}
+
+// Calculate volume
+double MeshGenerationDHexa::calculateVolume(const int elemIndex) const {
+
+	double volume(0.0);
+	for (int ip = 0; ip < 8; ++ip) {
+		const double xi = m_integralPointXi[ip];
+		const double eta = m_integralPointEta[ip];
+		const double zeta = m_integralPointZeta[ip];
+		volume += calcDeterminantOfJacobianMatrix(elemIndex, xi, eta, zeta) * m_weights[ip];
+	}
+	return volume;
+
+}
+
+// Calculate determinant of jacobian matrix of the elements
+double MeshGenerationDHexa::calcDeterminantOfJacobianMatrix(const int elemIndex, const double xi, const double eta, const double zeta) const {
+
+	double xCoord[8] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+	double yCoord[8] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+	double zCoord[8] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+	for (int i = 0; i < 8; ++i) {
+		const int nodeID = m_elemInfo[elemIndex].nodes[i];
+		xCoord[i] = m_nodeCoordinates[nodeID].X;
+		yCoord[i] = m_nodeCoordinates[nodeID].Y;
+		zCoord[i] = m_nodeCoordinates[nodeID].Z;
+	}
+
+	// Zero clear
+	DoubleMatrix3x3 JacobMat;
+	JacobMat.comp11 = 0.0;
+	JacobMat.comp12 = 0.0;
+	JacobMat.comp13 = 0.0;
+	JacobMat.comp21 = 0.0;
+	JacobMat.comp22 = 0.0;
+	JacobMat.comp23 = 0.0;
+	JacobMat.comp31 = 0.0;
+	JacobMat.comp32 = 0.0;
+	JacobMat.comp33 = 0.0;
+	for (int i = 0; i < 8; ++i) {
+		const double xiNode = m_xiAtNode[i];
+		const double etaNode = m_etaAtNode[i];
+		const double zetaNode = m_zetaAtNode[i];
+		const double tmp1 = 0.125 * xiNode * (1.0 + etaNode * eta) * (1.0 + zetaNode * zeta);
+		const double tmp2 = 0.125 * etaNode * (1.0 + zetaNode * zeta) * (1.0 + xiNode * xi);
+		const double tmp3 = 0.125 * zetaNode * (1.0 + xiNode * xi) * (1.0 + etaNode * eta);
+		JacobMat.comp11 += tmp1 * xCoord[i];
+		JacobMat.comp12 += tmp1 * yCoord[i];
+		JacobMat.comp13 += tmp1 * zCoord[i];
+		JacobMat.comp21 += tmp2 * xCoord[i];
+		JacobMat.comp22 += tmp2 * yCoord[i];
+		JacobMat.comp23 += tmp2 * zCoord[i];
+		JacobMat.comp31 += tmp3 * xCoord[i];
+		JacobMat.comp32 += tmp3 * yCoord[i];
+		JacobMat.comp33 += tmp3 * zCoord[i];
+	}
+
+	const double determinant = JacobMat.comp11 * JacobMat.comp22 * JacobMat.comp33
+		+ JacobMat.comp12 * JacobMat.comp23 * JacobMat.comp31
+		+ JacobMat.comp13 * JacobMat.comp21 * JacobMat.comp32
+		- JacobMat.comp13 * JacobMat.comp22 * JacobMat.comp31
+		- JacobMat.comp12 * JacobMat.comp21 * JacobMat.comp33
+		- JacobMat.comp11 * JacobMat.comp23 * JacobMat.comp32;
+
+	return determinant;
 
 }
 

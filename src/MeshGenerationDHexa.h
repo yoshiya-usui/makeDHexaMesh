@@ -83,6 +83,18 @@ struct ElementInfo{
 	int childs[8];
 };
 
+struct DoubleMatrix3x3 {
+	double comp11;
+	double comp12;
+	double comp13;
+	double comp21;
+	double comp22;
+	double comp23;
+	double comp31;
+	double comp32;
+	double comp33;
+};
+
 class MeshGenerationDHexa{
 	public:
 		// Constructer
@@ -324,6 +336,29 @@ class MeshGenerationDHexa{
 		bool m_is2DStructureAssumedForMesh;
 
 		// Add children to candidates of the elements to be changed to the land
+		double m_abscissas2Point[2];
+
+		// Weights of two point Gauss quadrature
+		double m_weights2Point[2];
+
+		double m_integralPointXi[8];
+
+		double m_integralPointEta[8];
+
+		double m_integralPointZeta[8];
+
+		double m_weights[8];
+
+		// Array of reference coord xi values for each node
+		double m_xiAtNode[8];
+
+		// Array of reference coord eta values for each node
+		double m_etaAtNode[8];
+
+		// Array of reference coord zeta values for each node
+		double m_zetaAtNode[8];
+
+		// Add children to candidates of the elements to be changed to the land
 		void addChildrenToLandCandidates( const int elemIndex, std::set<int>& elemsSeaToLand );
 
 		// Get whether all children are converted to the sea
@@ -447,6 +482,15 @@ class MeshGenerationDHexa{
 
 		// Check whether element has flat top and bottom surfaces
 		bool checkWhetherElementHasFlatTopAndBottomSurfaces( const ElementInfo& info ) const;
+
+		// Check element volumes
+		void checkElementVolumes();
+
+		// Calculate volume
+		double calculateVolume(const int elemIndex) const;
+
+		// Calculate determinant of jacobian matrix of the elements
+		double calcDeterminantOfJacobianMatrix(const int elemIndex, const double xi, const double eta, const double zeta) const;
 
 #ifdef _LAYERS
 		// Read data of layers
