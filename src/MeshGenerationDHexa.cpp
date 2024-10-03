@@ -386,15 +386,15 @@ void MeshGenerationDHexa::readInputFile(){
 		}
 		else if( line == "SEA_DEPTH" ){
 			if( m_hasSeaDepthRead == true ){
-				std::cerr << "Sea depth has already been read." << std::endl;	
+				std::cerr << "Initial sea depth has already been read." << std::endl;	
 				exit(1);
 			}
 			else{
-				std::cout << "Read sea depth." << std::endl;	
+				std::cout << "Read initial sea depth." << std::endl;	
 			}
 			inputFile >> m_seaDepth;
 			if( m_seaDepth < 0 ){
-				std::cerr << "Sea depth is less than zero !" << std::endl;
+				std::cerr << "Initial sea depth is less than zero !" << std::endl;
 				exit(1);			
 			}
 			m_includeSea = true;
@@ -493,6 +493,13 @@ void MeshGenerationDHexa::readInputFile(){
 		}
 	}
 	inputFile.close();
+
+	if (m_includeSea) {
+		if (m_seaDepth < CommonParameters::EPS ) {
+			std::cerr << "Initial sea depth (" << m_seaDepth << " km) is too shallow !" << std::endl;
+			exit(1);
+		}
+	}
 
 	switch (getPartitioningType()){
 		case NO_PARTITIONING:

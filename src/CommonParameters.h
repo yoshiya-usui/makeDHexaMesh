@@ -50,7 +50,7 @@ const static double EPS = 1.0e-9;
 
 static char programName[]="makeDHexaMesh";
 
-static char version[]="v1.5.2";
+static char version[]="v1.5.3";
 
 }
 
