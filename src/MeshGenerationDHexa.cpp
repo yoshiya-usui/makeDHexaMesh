@@ -483,9 +483,12 @@ void MeshGenerationDHexa::readInputFile(){
 			m_cuboids.push_back(obj);
 		}
 		else if (line == "ELLIPSOIDS") {
-		Ellipsoids* obj = new Ellipsoids();
+			Ellipsoids* obj = new Ellipsoids();
 			obj->readParameters(inputFile);
 			m_ellipsoids.push_back(obj);
+		}
+		else if (line == "LAKE") {
+			m_topographyData->readLakeData(inputFile);
 		}
 		else if( line == "END" ){
 			std::cout << "End of the data." << std::endl;
@@ -1639,9 +1642,6 @@ void MeshGenerationDHexa::checkWhetherEachParameterCellContainsAtLeastOneActiveE
 			std::cerr << "Parameter cell " << i << " has no element !!" << std::endl;
 			exit(1);
 		}
-#ifdef _DEBUG_WRITE
-		std::cout << i << " " << paramCellToNumElems[i] << std::endl;
-#endif
 	}
 
 	delete [] paramCellToNumElems;
@@ -1658,6 +1658,9 @@ void MeshGenerationDHexa::includeTopography( std::set<int>& elemsSeaToLand ){
 	}
 
 	std::cout << "Topography/bathymetry is incorporated." << std::endl;
+
+	m_topographyData->readLakeData();
+	selectLakeAreas();
 
 	const double xMin = m_CoordinatesXInit[0];
 	const double xMax = m_CoordinatesXInit[m_numXInit];
@@ -1705,6 +1708,9 @@ void MeshGenerationDHexa::includeTopography( std::set<int>& elemsSeaToLand ){
 			includeTopographyAux2( iLevel, maxLevel, nodeCoordinatesOrg2, nodeToElem );
 		}
 	}
+
+	// Include lakes
+	includeLakes();
 
 	outputEarthSurfaceDepthByVtk(elemEarthSurfToSeaDepth);
 
@@ -3088,7 +3094,34 @@ double MeshGenerationDHexa::calcZCoordAfterIncludingTopography( const double zMi
 }
 
 // Check whether all children have flat surface
-bool MeshGenerationDHexa::doesAllChildrenHaveFlatSurface( const int elemIndex ) const{
+bool MeshGenerationDHexa::doesAllChildrenHaveFlatSurface(const int elemIndex) const {
+
+	const ElementInfo& elemInfo = m_elemInfo[elemIndex];
+	const double eps = 1.0e-6;
+	const double depthTopRef = m_nodeCoordinates[elemInfo.nodes[0]].Z;
+	for (int i = 1; i < 4; ++i) {
+		const double depthTop = m_nodeCoordinates[elemInfo.nodes[i]].Z;
+		if (fabs(depthTop - depthTopRef) > eps) {
+			return false;
+		}
+	}
+
+	for (int i = 0; i < 4; ++i) {
+		const int elemIndexChild = elemInfo.childs[i];
+		if (elemIndexChild < 0) {
+			continue;
+		}
+		if (!doesAllChildrenHaveFlatSurface(elemIndexChild)) {
+			return false;
+		}
+	}
+
+	return true;
+	
+}
+
+// Check whether all children have flat surface at 0 (km)
+bool MeshGenerationDHexa::doesAllChildrenHaveFlatSurfaceAtZeroDepth(const int elemIndex) const{
 
 	const ElementInfo& elemInfo = m_elemInfo[elemIndex];
 	const double eps = 1.0e-6;
@@ -3106,7 +3139,7 @@ bool MeshGenerationDHexa::doesAllChildrenHaveFlatSurface( const int elemIndex ) 
 		if( elemIndexChild < 0 ){
 			continue;
 		}
-		if( !doesAllChildrenHaveFlatSurface(elemIndexChild) ){
+		if (!doesAllChildrenHaveFlatSurfaceAtZeroDepth(elemIndexChild)) {
 			return false;
 		}
 	}
@@ -3362,6 +3395,22 @@ void MeshGenerationDHexa::includeTopographyAux( const int iLevel, const int maxL
 					}
 				}else{
 					double zCoordSurfTarget = m_topographyData->interpolateZCoord(coordXY);
+					// For lakes
+					typedef std::multimap<int, int> MMII;
+					const std::pair<MMII::const_iterator, MMII::const_iterator> ret = nodeToElem.equal_range(nodeID);
+					for (MMII::const_iterator itrMMII = ret.first; itrMMII != ret.second; ++itrMMII) {
+						const int elemID = itrMMII->second;
+						if (!isActive(elemID)) {
+							continue;
+						}
+						const CommonParameters::XY coord = getGravityCenter(elemID);
+						int lakeIndex(-1);
+						if(m_topographyData->isPointLocatedInALake(coord.X, coord.Y, lakeIndex))
+						{							
+							zCoordSurfTarget = m_topographyData->getLakeSurfaceAltitude(lakeIndex);;
+							break;
+						}
+					}
 					if( zCoordSurfTarget > 0.0 ){
 						// The upper limit of the depth is zero
 						zCoordSurfTarget = 0.0;
@@ -3451,9 +3500,6 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 			for( MMII::const_iterator itrMMII = ret.first; itrMMII != ret.second; ++itrMMII ){
 				const int elemID = itrMMII->second;
 				if( m_elemInfo[elemID].level == iLevel && !doesAllChildrenBelongToLandOrAir(elemID) ){
-#ifdef _DEBUG_WRITE
-					const CommonParameters::XYZ coordOrg = nodeCoordOrg[nodeID];			
-#endif
 					// Exclude the nodes which connect to the sea element
 					goAhead = false;
 					break;
@@ -3496,7 +3542,23 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 					break;
 				}
 				const CommonParameters::XY coordXY = {coordOrg.X, coordOrg.Y};
-				const double zCoordSurfTarget = m_topographyData->interpolateZCoord(coordXY);
+				double zCoordSurfTarget = m_topographyData->interpolateZCoord(coordXY);
+				// For lakes
+				typedef std::multimap<int, int> MMII;
+				const std::pair<MMII::const_iterator, MMII::const_iterator> ret = nodeToElem.equal_range(nodeID);
+				for (MMII::const_iterator itrMMII = ret.first; itrMMII != ret.second; ++itrMMII) {
+					const int elemID = itrMMII->second;
+					if (!isActive(elemID)) {
+						continue;
+					}
+					const CommonParameters::XY coord = getGravityCenter(elemID);
+					int lakeIndex(-1);
+					if (m_topographyData->isPointLocatedInALake(coord.X, coord.Y, lakeIndex))
+					{
+						zCoordSurfTarget = m_topographyData->getLakeSurfaceAltitude(lakeIndex);;
+						break;
+					}
+				}
 				if ( zCoordSurfTarget < zMin || zCoordSurfTarget > zMax ) {
 					break;
 				}
@@ -3630,6 +3692,34 @@ void MeshGenerationDHexa::includeTopographyAux2( const int iLevel, const int max
 //
 //}
 
+// Select lake areas
+void MeshGenerationDHexa::selectLakeAreas() const {
+
+	if (!m_topographyData->isLakeIncluded()) {
+		return;
+	}
+
+	std::cout << "Select lake areas" << std::endl;
+
+	for (std::set<int>::const_iterator itr = m_elementOfEarthSurface.begin(); itr != m_elementOfEarthSurface.end(); ++itr) {
+		const int elemIndex = *itr;
+		if (elemIndex < 0) {
+			continue;
+		}
+		const int node0 = m_elemInfo[elemIndex].nodes[0];
+		const int node2 = m_elemInfo[elemIndex].nodes[2];
+		const double xMin = m_nodeCoordinates[node0].X;
+		const double xMax = m_nodeCoordinates[node2].X;
+		const double yMin = m_nodeCoordinates[node0].Y;
+		const double yMax = m_nodeCoordinates[node2].Y;
+		// Select lake areas
+		m_topographyData->selectLakeAreas(xMin, xMax, yMin, yMax);
+	}
+
+	std::cout << "Selected lake areas are composed of " << m_topographyData->getNumOfSelectLakeAreas() << " element surfaces" <<  std::endl;
+
+}
+
 // Select elements to be changed to land from the sea
 void MeshGenerationDHexa::selectElementsToBeChangedToLandFromSea( std::set<int>& elemsSeaToLand ){
 
@@ -3725,7 +3815,7 @@ void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLand( std::map<int, 
 		if( elemIndex < 0 ){
 			continue;
 		}
-		if( !doesAllChildrenHaveFlatSurface(elemIndex) ){
+		if (!doesAllChildrenHaveFlatSurfaceAtZeroDepth(elemIndex)) {
 			continue;
 		}
 		const double depthAvg = calcAverageZCoord(elemIndex);
@@ -3743,15 +3833,22 @@ void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLand( std::map<int, 
 void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLandAux( const int level, const double depthAvg, int elemIndex, std::map<int, double>& elemsLandToSea ) const{
 
 	while( elemIndex >= 0 ){
-		assert( checkWhetherElementHasFlatTopAndBottomSurfaces(m_elemInfo[elemIndex]) );
+		//assert( checkWhetherElementHasFlatTopAndBottomSurfaces(m_elemInfo[elemIndex]) );
 		assert( m_elemInfo[elemIndex].level == level );
 		if( m_elemInfo[elemIndex].type != LAND ){
 			break;
 		}
-		const int nodeAtTop = m_elemInfo[elemIndex].nodes[0];
-		const int nodeAtBot = m_elemInfo[elemIndex].nodes[7];
-		const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
-		const double depthBot = m_nodeCoordinates[nodeAtBot].Z;
+		double depthTop(0.0);
+		double depthBot(0.0);
+		for (int i = 0; i < 4; ++i) {
+			const int nodeTop = m_elemInfo[elemIndex].nodes[i];
+			const int nodeBot = m_elemInfo[elemIndex].nodes[i+4];
+			depthTop += m_nodeCoordinates[nodeTop].Z;
+			depthBot += m_nodeCoordinates[nodeBot].Z;
+		}
+		depthTop *= 0.25;
+		depthBot *= 0.25;
+
 		if( depthTop > depthAvg ){
 			// The element is below the sea floor
 			break;
@@ -3791,6 +3888,163 @@ void MeshGenerationDHexa::selectElementsToBeChangedToSeaFromLandAux( const int l
 
 }
 
+// Incorporate lakes into the model
+void MeshGenerationDHexa::includeLakes(){
+
+	if (!m_topographyData->isLakeIncluded()) {
+		return;
+	}
+
+	std::cout << "Include lakes." << std::endl;
+	// Select elements to be changed to lake from land
+	std::map<int, double> elemsLandToLake;
+	for (std::set<int>::const_iterator itr = m_elementOfEarthSurfaceWithInactiveElements.begin(); itr != m_elementOfEarthSurfaceWithInactiveElements.end(); ++itr) {
+		int elemIndex = *itr;
+		if (elemIndex < 0) {
+			continue;
+		}
+		if (!doesAllChildrenHaveFlatSurface(elemIndex)) {
+			continue;
+		}
+		const CommonParameters::XY coord = getGravityCenter(elemIndex);
+		int lakeIndex(-1);
+		if (m_topographyData->isPointLocatedInALake(coord.X, coord.Y, lakeIndex))
+		{
+			const ElementInfo& info = m_elemInfo[elemIndex];
+			const double lakeBottomDepthAvg = calcAverageZCoordForLake(elemIndex, lakeIndex);
+			const double lakeResistivity = m_topographyData->getLakeResistivity(lakeIndex);
+			selectElementsToBeChangedToLakeFromLand(info.level, lakeBottomDepthAvg, lakeResistivity, elemIndex, elemsLandToLake);
+		}
+	}
+
+	// Pre-fixed parameter cells (e.g., air and sea layers)
+	std::map<int, double> parameterCellToResistivityNew;
+	std::map<int, int> parameterCellToFixFlagNew;
+	std::map<int, int> parameterCellIndexOrgToNew;
+	const int numOfParameterCellsOrg = static_cast<int>(m_parameterCellToResistivity.size());
+	int paramCellIDNew = 0;
+	for (int i = 0; i < numOfParameterCellsOrg; ++i)
+	{
+		const int fixFlag = m_parameterCellToFixFlag[i];
+		if (fixFlag)
+		{
+			parameterCellToResistivityNew.insert(std::make_pair(paramCellIDNew, m_parameterCellToResistivity[i]));
+			parameterCellToFixFlagNew.insert(std::make_pair(paramCellIDNew, fixFlag));
+			parameterCellIndexOrgToNew.insert(std::make_pair(i, paramCellIDNew));
+			++paramCellIDNew;
+		}
+	}
+	for (std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr) {
+		const int paramCellIDOrg = itr->parameterCell;
+		if (parameterCellIndexOrgToNew.find(paramCellIDOrg) != parameterCellIndexOrgToNew.end())
+		{
+			// Renumbering
+			itr->parameterCell = parameterCellIndexOrgToNew[paramCellIDOrg];
+		}
+	}
+
+	// Lakes
+	for (std::map<int, double>::const_iterator itr = elemsLandToLake.begin(); itr != elemsLandToLake.end(); ++itr) {
+		ElementInfo& info = m_elemInfo[itr->first];
+		const int paramCellIDOrg = info.parameterCell;
+		const bool isFixed = m_parameterCellToFixFlag[paramCellIDOrg];
+		if (isFixed) {
+			continue;
+		}
+		if (info.isActive) {
+			info.parameterCell = paramCellIDNew;
+			parameterCellToResistivityNew.insert(std::make_pair(paramCellIDNew, itr->second));
+			parameterCellToFixFlagNew.insert(std::make_pair(paramCellIDNew, 1));
+			++paramCellIDNew;
+		}
+	}
+
+	// Land
+	const int levelIimit = m_levelLimitParameterCellPartitioning;
+	int elemIndex(0);
+	for (std::vector<ElementInfo>::iterator itr = m_elemInfo.begin(); itr != m_elemInfo.end(); ++itr, ++elemIndex) {
+		const int paramCellIDOrg = itr->parameterCell;
+		const bool isFixed = m_parameterCellToFixFlag[paramCellIDOrg];
+		if (isFixed) {
+			continue;
+		}
+		if (itr->level > levelIimit) {
+			continue;
+		}
+		if (!itr->isActive && itr->level != levelIimit) {
+			continue;
+		}
+		// @note: Although allChildrenAreConvertedToSea is a function for the sea, it can be used for lakes
+		if (allChildrenAreConvertedToSea(elemIndex, elemsLandToLake)) {
+			continue;
+		}
+		const double resistivity = m_parameterCellToResistivity[paramCellIDOrg];
+		const int fixFlag = isFixed;
+		itr->parameterCell = paramCellIDNew;
+		// @note: Although giveSameParamCellIDToChildren is a function for the sea, it can be used for lakes
+		giveSameParamCellIDToChildren(elemIndex, paramCellIDNew, elemsLandToLake);
+		parameterCellToResistivityNew.insert(std::make_pair(paramCellIDNew, resistivity));
+		parameterCellToFixFlagNew.insert(std::make_pair(paramCellIDNew, fixFlag));
+		++paramCellIDNew;
+	}
+
+	m_parameterCellToResistivity.swap(parameterCellToResistivityNew);
+	m_parameterCellToFixFlag.swap(parameterCellToFixFlagNew);
+
+}
+
+// Select elements to be changed to lake from land
+void MeshGenerationDHexa::selectElementsToBeChangedToLakeFromLand(const int level, const double depthAvg, const double lakeResistivity, int elemIndex, 
+	std::map<int, double>& elemsLandToLake) const{
+
+	while (elemIndex >= 0) {
+		assert(m_elemInfo[elemIndex].level == level);
+		if (m_elemInfo[elemIndex].type != LAND) {
+			break;
+		}
+		const int nodeAtTop = m_elemInfo[elemIndex].nodes[0];
+		const int nodeAtBot = m_elemInfo[elemIndex].nodes[7];
+		const double depthTop = m_nodeCoordinates[nodeAtTop].Z;
+		const double depthBot = m_nodeCoordinates[nodeAtBot].Z;
+		if (depthTop > depthAvg) {
+			// The element is below the lake bottom
+			break;
+		}
+		if (depthAvg > depthBot) {
+			// The whole part of the element is a lake
+			elemsLandToLake.insert(std::make_pair(elemIndex, lakeResistivity));
+		}
+		else {
+			const double elemHeight = fabs(depthBot - depthTop);
+			const double d1 = (depthAvg - depthTop) / elemHeight;
+			const double d2 = (depthBot - depthAvg) / elemHeight;
+			if (d1 < 0.01) {
+				break;
+			}
+			const double conductivityLake = 1.0 / lakeResistivity;
+			const double conductivityOrg = 1.0 / getResistivityFromElement(m_elemInfo[elemIndex]);
+			const double conductivityNew = conductivityLake * d1 + conductivityOrg * d2;
+			elemsLandToLake.insert(std::make_pair(elemIndex, 1.0 / conductivityNew));
+			break;
+		}
+		// Search downward
+		int elemIDNext = m_elemInfo[elemIndex].neib[5][0];
+		if (m_elemInfo[elemIDNext].level < level) {
+			break;
+		}
+		else if (m_elemInfo[elemIDNext].level > level) {
+			const int levelNext = m_elemInfo[elemIDNext].level;
+			for (int i = 0; i < 4; ++i) {
+				const int elemIDNext = m_elemInfo[elemIndex].neib[5][i];
+				selectElementsToBeChangedToLakeFromLand(levelNext, depthAvg, lakeResistivity, elemIDNext, elemsLandToLake);
+			}
+			elemIDNext = m_elemInfo[elemIDNext].parent;
+		}
+		elemIndex = elemIDNext;
+	}
+
+}
+
 // Calculated average Z coordinate in an element
 double MeshGenerationDHexa::calcAverageZCoord( const int elemIndex ) const{
 
@@ -3801,6 +4055,19 @@ double MeshGenerationDHexa::calcAverageZCoord( const int elemIndex ) const{
 	const double yMin = m_nodeCoordinates[node0].Y;
 	const double yMax = m_nodeCoordinates[node2].Y;
 	return m_topographyData->calcAverageZCoord(xMin, xMax, yMin, yMax);
+
+}
+
+// Calculated average Z coordinate for lake in an element
+double MeshGenerationDHexa::calcAverageZCoordForLake(const int elemIndex, const int lakeIndex) const {
+
+	const int node0 = m_elemInfo[elemIndex].nodes[0];
+	const int node2 = m_elemInfo[elemIndex].nodes[2];
+	const double xMin = m_nodeCoordinates[node0].X;
+	const double xMax = m_nodeCoordinates[node2].X;
+	const double yMin = m_nodeCoordinates[node0].Y;
+	const double yMax = m_nodeCoordinates[node2].Y;
+	return m_topographyData->calcAverageZCoordForLake(xMin, xMax, yMin, yMax, lakeIndex);
 
 }
 
@@ -4359,6 +4626,21 @@ double MeshGenerationDHexa::calcDeterminantOfJacobianMatrix(const int elemIndex,
 
 	return determinant;
 
+}
+
+// Get gravity center
+CommonParameters::XY MeshGenerationDHexa::getGravityCenter(const int elemIndex) const {
+
+	CommonParameters::XY coord = { 0.0, 0.0 };
+	for (int i = 0; i < 4; ++i) {
+		const int nodeID = m_elemInfo[elemIndex].nodes[i];
+		coord.X += m_nodeCoordinates[nodeID].X;
+		coord.Y += m_nodeCoordinates[nodeID].Y;
+	}
+	coord.X *= 0.25;
+	coord.Y *= 0.25;
+
+	return coord;
 }
 
 #ifdef _LAYERS

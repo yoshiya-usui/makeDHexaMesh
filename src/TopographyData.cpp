@@ -22,6 +22,7 @@
 // SOFTWARE.
 //--------------------------------------------------------------------------
 #include "TopographyData.h"
+#include "Lake.h"
 #include "math.h"
 #include <stdio.h>
 #include <iostream>
@@ -77,12 +78,29 @@ void TopographyData::readTopographyData( const double xMin, const double xMax, c
 			coord.Y > yMax + m_maxDistanceForInterpolating ){
 			continue;
 		}
+		for (std::vector<Lake>::iterator itr = m_lakes.begin(); itr != m_lakes.end(); ++itr)
+		{
+			if (itr->isPointIncludedInAnArea(coord.X, coord.Y))
+			{
+				coord.Z = itr->getAltitudeOfLakeSurface();
+			}
+		}
 		m_coords.push_back( coord );
 		++icount;
     }
 	ifs.close();
 
 	std::cout << "Total number of data is " << icount << std::endl;
+
+}
+
+// Read lake data
+void TopographyData::readLakeData() {
+
+	for (std::vector<Lake>::iterator itr = m_lakes.begin(); itr != m_lakes.end(); ++itr)
+	{
+		itr->readLakeBottomDepths();
+	}
 
 }
 
@@ -93,7 +111,7 @@ double TopographyData::calcZByFunction( const CommonParameters::XY& coord ) cons
 	const double xOrg = coord.X;
 	const double yOrg = coord.Y;
 
-	const bool includeSea(true);
+	const bool includeSea(false);
 	if( includeSea ){
 //		const double zSeaBot = m_seaDepth;
 //#if 0
@@ -153,34 +171,34 @@ double TopographyData::calcZByFunction( const CommonParameters::XY& coord ) cons
 		return seaDepth;
 	}else{
 		double height(0.0);
-//#if 1
-//		const double length = 0.45 * 0.5;
-//		if( xOrg > 1.0 || xOrg < -1.0 || yOrg > 1.0 || yOrg < -1.0 ){
-//			return zOrg;
-//		}
-//		if( xOrg < length && xOrg > -length && yOrg < length && yOrg > -length ){
-//			height = 0.45;
-//		}else if( fabs(xOrg) >= fabs(yOrg) ){
-//			if( xOrg > 0.0 ){
-//				height = 0.45 + (xOrg - length) / (1.0 - length) * (0.0 - 0.45);
-//			}else{
-//				height = 0.0 + (xOrg + 1.0) / (-length + 1.0) * (0.45 - 0.0);
-//			}
-//		}
-//		else{
-//			if( yOrg > 0.0 ){
-//				height = 0.45 + (yOrg - length) / (1.0 - length) * (0.0 - 0.45);
-//			}else{
-//				height = 0.0 + (yOrg + 1.0) / (-length + 1.0) * (0.45 - 0.0);
-//			}
-//		}
-//#else
-//		const double sigma = 20.0;
-//		const double maxHeight = 10.0;
-//		const double factor = maxHeight * sqrt(2.0*CommonParameters::PI)*sigma;
-//		const double dist = hypot(xOrg, yOrg);
-//		const double height = factor / ( sqrt( 2.0 * CommonParameters::PI ) * sigma ) * exp( - 0.5 * pow(dist/sigma,2) );
-//#endif
+#if 1
+		const double length = 0.45 * 0.5;
+		if( xOrg > 1.0 || xOrg < -1.0 || yOrg > 1.0 || yOrg < -1.0 ){
+			return 0.0;
+		}
+		if( xOrg < length && xOrg > -length && yOrg < length && yOrg > -length ){
+			height = 0.45;
+		}else if( fabs(xOrg) >= fabs(yOrg) ){
+			if( xOrg > 0.0 ){
+				height = 0.45 + (xOrg - length) / (1.0 - length) * (0.0 - 0.45);
+			}else{
+				height = 0.0 + (xOrg + 1.0) / (-length + 1.0) * (0.45 - 0.0);
+			}
+		}
+		else{
+			if( yOrg > 0.0 ){
+				height = 0.45 + (yOrg - length) / (1.0 - length) * (0.0 - 0.45);
+			}else{
+				height = 0.0 + (yOrg + 1.0) / (-length + 1.0) * (0.45 - 0.0);
+			}
+		}
+#else
+		const double sigma = 20.0;
+		const double maxHeight = 10.0;
+		const double factor = maxHeight * sqrt(2.0*CommonParameters::PI)*sigma;
+		const double dist = hypot(xOrg, yOrg);
+		const double height = factor / ( sqrt( 2.0 * CommonParameters::PI ) * sigma ) * exp( - 0.5 * pow(dist/sigma,2) );
+#endif
 		return -height;
 	}
 
@@ -289,6 +307,60 @@ double TopographyData::calcAverageZCoord( const double xMin, const double xMax, 
 
 }
 
+// Calculated average Z coordinate in a rectangular area for lake
+double TopographyData::calcAverageZCoordForLake(const double xMin, const double xMax, const double yMin, const double yMax, const int lakeIndex) {
+	return m_lakes[lakeIndex].calcAverageZCoord(xMin, xMax, yMin, yMax);
+}
+
+// Read lake data
+void TopographyData::readLakeData(std::ifstream& ifs) {
+
+	Lake obj;
+	obj.readLakeData(ifs);
+	m_lakes.push_back(obj);
+
+}
+
+// Check if the point is located in a lake
+bool TopographyData::isPointLocatedInALake(const double x, const double y, int& lakeIndex) const {
+
+	int index(0);
+	for (std::vector<Lake>::const_iterator itr = m_lakes.begin(); itr != m_lakes.end(); ++itr, ++index)
+	{
+		if (itr->isPointIncludedInAnArea(x, y))
+		{
+			lakeIndex = index;
+			return true;
+		}
+	}
+	return false;
+
+}
+
+// Check if lake is included in the model
+bool TopographyData::isLakeIncluded() const {
+
+	if (m_lakes.empty())
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+
+}
+
+// Get lake surface altitude
+double TopographyData::getLakeSurfaceAltitude(const int lakeIndex) const {
+	return m_lakes[lakeIndex].getAltitudeOfLakeSurface();
+}
+
+// Get lake resistivity
+double TopographyData::getLakeResistivity(const int lakeIndex) const {
+	return m_lakes[lakeIndex].getLakeResistivity();
+}
+
 void TopographyData::outputVTK( const std::string& fname ) const{
 
 	std::ofstream ofsVTK( fname.c_str() );
@@ -337,4 +409,26 @@ void TopographyData::outputVTK( const std::string& fname ) const{
 	//------------------------------
 
 	ofsVTK.close();
+}
+
+// Select lake areas
+void TopographyData::selectLakeAreas(const double xMin, const double xMax, const double yMin, const double yMax) {
+
+	for (std::vector<Lake>::iterator itr = m_lakes.begin(); itr != m_lakes.end(); ++itr)
+	{
+		itr->selectLakeArea(xMin, xMax, yMin, yMax);
+	}
+
+}
+
+// Get number of selected lake areas
+int TopographyData::getNumOfSelectLakeAreas() const {
+
+	int icount(0);
+	for (std::vector<Lake>::const_iterator itr = m_lakes.begin(); itr != m_lakes.end(); ++itr)
+	{
+		icount += itr->getNumOfSelectLakeAreas();
+	}
+	return icount;
+
 }

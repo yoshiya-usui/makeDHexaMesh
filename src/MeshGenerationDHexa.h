@@ -47,6 +47,7 @@ enum ElementType{
 	LAND = 0,
 	SEA,
 	AIR,
+	LAKE,
 };
 
 enum PartitioningType{
@@ -335,7 +336,7 @@ class MeshGenerationDHexa{
 		// Flag specifing whether 2D structure is assumed for the mesh
 		bool m_is2DStructureAssumedForMesh;
 
-		// Add children to candidates of the elements to be changed to the land
+		// Abscissas of two point Gauss quadrature
 		double m_abscissas2Point[2];
 
 		// Weights of two point Gauss quadrature
@@ -404,6 +405,9 @@ class MeshGenerationDHexa{
 		// Check whether all children have flat surface
 		bool doesAllChildrenHaveFlatSurface( const int elemIndex ) const;
 
+		// Check whether all children have flat surface at 0 (km)
+		bool doesAllChildrenHaveFlatSurfaceAtZeroDepth(const int elemIndex) const;
+
 		// Insert to vertical nodes array
 		void insertToVerticalNodesArray( const int elemID, std::vector< std::set<int> >& verticalElementsArray,
 			std::vector< CommonParameters::XY >& horizontalCoordsArray ) const;
@@ -438,17 +442,30 @@ class MeshGenerationDHexa{
 		//void includeTopographyForLandAreaChangedFromSeaAux( const int iLevel, const std::vector<CommonParameters::XYZ>& nodeCoordOrg,
 		//	std::set<int>& surfElemsLand, std::set<int>& surfElemSea, const std::multimap<int,int>& nodeToElems );
 
+		// Select lake areas
+		void selectLakeAreas() const;
+
 		// Select elements to be changed to land from the sea
 		void selectElementsToBeChangedToLandFromSea( std::set<int>& elemsSeaToLand );
 
-		// Select elements to be changed to seat from land
+		// Select elements to be changed to sea from land
 		void selectElementsToBeChangedToSeaFromLand( std::map<int, double>& elemsLandToSea, std::map<int, double>& elemEarthSurfToSeaDepth ) const;
 
-		// Auxiliary function for selecting elements to be changed to seat from land
+		// Auxiliary function for selecting elements to be changed to sea from land
 		void selectElementsToBeChangedToSeaFromLandAux( const int level, const double depthAvg, int elemIndex, std::map<int, double>& elemsLandToSea ) const;
+
+		// Incorporate lakes into the model
+		void includeLakes();
+
+		// Select elements to be changed to lake from land
+		void selectElementsToBeChangedToLakeFromLand(const int level, const double depthAvg, const double lakeResistivity, int elemIndex,
+			std::map<int, double>& elemsLandToLake) const;
 
 		// Calculated average Z coordinate in an element
 		double calcAverageZCoord( const int elemIndex ) const;
+
+		// Calculated average Z coordinate for lake in an element
+		double calcAverageZCoordForLake(const int elemIndex, const int lakeIndex) const;
 
 		// Change sea to land
 		bool changeSeaToLand( const int elemIndex, const std::set<int>& elemsSeaToLand, const int paramCellIDNew );
@@ -491,6 +508,9 @@ class MeshGenerationDHexa{
 
 		// Calculate determinant of jacobian matrix of the elements
 		double calcDeterminantOfJacobianMatrix(const int elemIndex, const double xi, const double eta, const double zeta) const;
+
+		// Get gravity center
+		CommonParameters::XY getGravityCenter(const int elemIndex) const;
 
 #ifdef _LAYERS
 		// Read data of layers

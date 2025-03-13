@@ -6,6 +6,7 @@ DEST          = ./
 OBJS          = Ellipsoids.o \
                 Cuboids.o \
                 main.o \
+                Lake.o \
                 MeshGenerationDHexa.o \
                 ObservationLine.o \
                 ObservationPoint.o \

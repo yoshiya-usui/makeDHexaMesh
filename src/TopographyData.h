@@ -26,6 +26,8 @@
 
 #include "TopographyData.h"
 #include "CommonParameters.h"
+#include "Lake.h"
+
 #include <vector>
 #include <string>
 
@@ -45,11 +47,38 @@ public:
 	// Read topography data
 	void readTopographyData( const double xMin, const double xMax, const double yMin, const double yMax );
 
+	// Read lake data
+	void readLakeData();
+
 	// Interpolate Z coordinate
 	double interpolateZCoord( const CommonParameters::XY& coord ) const;
 
 	// Calculated average Z coordinate in a rectangular area
 	double calcAverageZCoord( const double xMin, const double xMax, const double yMin, const double yMax );
+
+	// Calculated average Z coordinate in a rectangular area for lake
+	double calcAverageZCoordForLake(const double xMin, const double xMax, const double yMin, const double yMax, const int lakeIndex);
+
+	// Read lake data
+	void readLakeData(std::ifstream& ifs);
+
+	// Check if the point is located in a lake
+	bool isPointLocatedInALake(const double x, const double y, int& lakeIndex) const;
+
+	// Check if lake is included in the model
+	bool isLakeIncluded() const;
+
+	// Get lake surface altitude
+	double getLakeSurfaceAltitude(const int lakeIndex) const;
+
+	// Get lake resistivity
+	double getLakeResistivity(const int lakeIndex) const;
+
+	// Select lake areas
+	void selectLakeAreas(const double xMin, const double xMax, const double yMin, const double yMax);
+
+	// Get number of selected lake areas
+	int getNumOfSelectLakeAreas() const;
 
 private:
 	// Copy constructer
@@ -73,6 +102,9 @@ private:
 	// Distance used to avoid too small denominator in inverse distance weighting
 	double m_distanceUsedToAvoidTooSmallDenominator;
 
+	// List of lake objects
+	std::vector<Lake> m_lakes;
+
 	void outputVTK( const std::string& fname ) const;
 
 #ifdef _TOPO_FUNC
@@ -81,5 +113,4 @@ private:
 #endif
 
 };
-
 #endif
